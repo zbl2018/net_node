@@ -205,8 +205,10 @@ String decodejson_serial(char* s){ //decode the json from net by shenrks
 }
 
 void net_init(){
+    int  set = 1;
+    int is_connect;
     /*创建socket*/   
- 
+    //设置通信类型：tcp,ipv4网际通信
     if ((sockfd = socket(AF_INET,SOCK_STREAM,0)) == -1)   
     {   
     perror("Socket failed!\n");   
@@ -214,18 +216,28 @@ void net_init(){
     }   
     printf("Socket id = %d\n",sockfd);   
     /*设置sockaddr_in 结构体中相关参数*/   
-    serv_addr.sin_family = AF_INET;   
-    serv_addr.sin_port = htons(PORT);   
+    serv_addr.sin_family = AF_INET; //ipv4协议簇  
+    serv_addr.sin_port = htons(PORT);//端口 
+    //地址的表达格式由ASCII字符串转为二进制数值，servInetAddr->serv_addr.sin_addr  
     inet_pton(AF_INET, servInetAddr, &serv_addr.sin_addr);    
-    bzero(&(serv_addr.sin_zero), 8);   
-    int  set = 1;
+    bzero(&(serv_addr.sin_zero), 8);
+
+    
     setsockopt(sockfd, SOL_SOCKET,0, (void  *)&set, sizeof(int));
-    /*调用connect 函数主动发起对服务器端的连接*/  
+    /*调用connect 函数主动发起对服务器端的连接*/
+    ////////////////////////////////////////////
+    //decode by zbl on mar 21 
+    //如果链接失败，则阻塞进程，等待服务端启动，链接成功 
     cout<<"waiting for connect"<<endl; 
-    if(connect(sockfd,(struct sockaddr *)&serv_addr, sizeof(serv_addr))== -1)   
+    is_connect=connect(sockfd,(struct sockaddr *)&serv_addr, sizeof(serv_addr));
+    if(is_connect<0)   
     {   
-    perror("Connect failed!\n");   
-    exit(1);   
+    perror("Connect failed!\n");  
+    cout<<"waiting for connect again..."<<endl; 
+    //exit(1);   
+    }
+    while(is_connect<0){
+        is_connect=connect(sockfd,(struct sockaddr *)&serv_addr, sizeof(serv_addr));
     }   
     printf("welcome\n"); 
 }
@@ -277,14 +289,13 @@ unsigned char* intToBytes(int value) { //big end to little end
     src[3] = (unsigned char) (value & 0xFF);
     return src;
 }
-//decoded from zbl on jan 21
-//deal with the information that prepare to send socket 
-int deal_preSendInfo(string preInfo,char finInfo[], int &Infolen){
-    
-    int len = preInfo.length();
+//decoded from zbl on MAR 21
+//send the information of string to server 
+int send_info_to_server(string info,string tip){
+    int len = info.length();
     unsigned char *s_len = (unsigned char*)&len;
    
-    const char* ss_c = preInfo.c_str();
+    const char* ss_c = info.c_str();
     char send_str[len+6] = {0};
     send_str[0] = NULL;
     send_str[1] = NULL;
@@ -294,16 +305,28 @@ int deal_preSendInfo(string preInfo,char finInfo[], int &Infolen){
     for(int i=0;i<4;i++){
         send_str[i+2] = len_byte[i];
     }
-    //复制转换数据
     for(int i=6;i<(len+6);i++){
         send_str[i] = ss_c[i-6];
     }
     send_str[len+6] = '\0';
-
-    //转换完成
-    finInfo=send_str;
-    Infolen=len+6;
-    return 1;
+    cout<<"send_str";
+    for(int i=6;i<(len+6);i++){
+        cout<<send_str[i];
+    }
+    cout<<endl;
+    //发送消息
+    //若链接断开，实现重连
+    if(send(sockfd,send_str,len+6,MSG_NOSIGNAL)<0)
+     {  
+        perror("send"); 
+        //decode by zbl on mar 21 
+        //如果与服务端断开，则重新链接
+        close(sockfd);
+        net_init(); 
+        //exit(1);  
+     } 
+     else cout<<tip<<endl;
+     return 1;
 }
 void decodeMove(char* s){
     Json::Reader reader;
@@ -620,46 +643,50 @@ void send_cross_info(int count){
     CrossInfo["no"]=count;
 
     string preinfo =writer.write(CrossInfo);
-
-
-    int len = preinfo.length();
-    unsigned char *s_len = (unsigned char*)&len;
+    string tip="have sent information of crosspoint successfully!"；
+    send_info_to_server(preinfo,tip)；
+//     int len = preinfo.length();
+//     unsigned char *s_len = (unsigned char*)&len;
    
-    const char* ss_c = preinfo.c_str();
-    char send_str[len+6] = {0};
-    send_str[0] = NULL;
-    send_str[1] = NULL;
+//     const char* ss_c = preinfo.c_str();
+//     char send_str[len+6] = {0};
+//     send_str[0] = NULL;
+//     send_str[1] = NULL;
 
 
-    unsigned char* len_byte = intToBytes(len);
-    for(int i=0;i<4;i++){
-        send_str[i+2] = len_byte[i];
-    }
-    for(int i=6;i<(len+6);i++){
-        send_str[i] = ss_c[i-6];
-    }
-    send_str[len+6] = '\0';
-    cout<<"send_str";
-    for(int i=6;i<(len+6);i++){
-        cout<<send_str[i];
-    }
-    cout<<endl;
+//     unsigned char* len_byte = intToBytes(len);
+//     for(int i=0;i<4;i++){
+//         send_str[i+2] = len_byte[i];
+//     }
+//     for(int i=6;i<(len+6);i++){
+//         send_str[i] = ss_c[i-6];
+//     }
+//     send_str[len+6] = '\0';
+//     cout<<"send_str";
+//     for(int i=6;i<(len+6);i++){
+//         cout<<send_str[i];
+//     }
+//     cout<<endl;
 
 
-    //  cout<<"finInfo:";
-    // //将json转为socket可接受的数据格式，并且前6位为控制字段
-    // //deal_preSendInfo(preinfo,finInfo,len);
-    // cout<<"preinfo:"<<preinfo<<endl;
-    // for(int i=0;i<len;i++)
-    //     cout<<finInfo[i];
-    // cout<<"deal info successfully!"<<endl;
-    // //处理完json数据，加上前6位控制字段发送
-   if(send(sockfd,send_str,len+6,0)<0)
-     {  
-        perror("send");  
-        //exit(1);  
-     } 
-     else cout<<"have sent information of crosspoint successfully!"<<endl;
+//     //  cout<<"finInfo:";
+//     // //将json转为socket可接受的数据格式，并且前6位为控制字段
+//     // //deal_preSendInfo(preinfo,finInfo,len);
+//     // cout<<"preinfo:"<<preinfo<<endl;
+//     // for(int i=0;i<len;i++)
+//     //     cout<<finInfo[i];
+//     // cout<<"deal info successfully!"<<endl;
+//     // //处理完json数据，加上前6位控制字段发送
+//    if(send(sockfd,send_str,len+6,MSG_NOSIGNAL)<0)
+//      {  
+//         perror("send"); 
+//         //decode by zbl on mar 21 
+//         //如果与服务端断开，则重新链接
+//         close(sockfd);
+//         net_init(); 
+//         //exit(1);  
+//      } 
+//      else cout<<"have sent information of crosspoint successfully!"<<endl;
 }
 
 void sendTask_Arrived(){
@@ -683,38 +710,43 @@ void sendTask_Arrived(){
     }
 
     string jstr = writer.write(map_data);
-
+    string tip="have sent information of taskpoint successfully!";
+    send_info_to_server(jstr,tip)；
     //cout<<"josn:"<<jstr<<endl;
 
-    int len = jstr.length();
-    unsigned char *s_len = (unsigned char*)&len;
+    // int len = jstr.length();
+    // unsigned char *s_len = (unsigned char*)&len;
    
-    const char* ss_c = jstr.c_str();
-    char send_str[len+6] = {0};
-    send_str[0] = NULL;
-    send_str[1] = NULL;
+    // const char* ss_c = jstr.c_str();
+    // char send_str[len+6] = {0};
+    // send_str[0] = NULL;
+    // send_str[1] = NULL;
 
 
-    unsigned char* len_byte = intToBytes(len);
-    for(int i=0;i<4;i++){
-        send_str[i+2] = len_byte[i];
-    }
-    for(int i=6;i<(len+6);i++){
-        send_str[i] = ss_c[i-6];
-    }
-    send_str[len+6] = '\0';
-    cout<<"task:";
-    for(int i=6;i<(len+6);i++){
-        cout<<send_str[i];
-    }
-    cout<<endl;
-    //send(sockfd,send_str,len+6,0);
-    if(send(sockfd,send_str,len+6,0)<0)
-     {  
-        perror("send");  
-        //exit(1);  
-     } 
-     else cout<<"have sent information of taskpoint successfully!"<<endl;
+    // unsigned char* len_byte = intToBytes(len);
+    // for(int i=0;i<4;i++){
+    //     send_str[i+2] = len_byte[i];
+    // }
+    // for(int i=6;i<(len+6);i++){
+    //     send_str[i] = ss_c[i-6];
+    // }
+    // send_str[len+6] = '\0';
+    // cout<<"task:";
+    // for(int i=6;i<(len+6);i++){
+    //     cout<<send_str[i];
+    // }
+    // cout<<endl;
+    // //send(sockfd,send_str,len+6,0);
+    // if(send(sockfd,send_str,len+6,MSG_NOSIGNAL)<0)
+    //  {  
+    //     perror("send");
+    //     //decode by zbl on mar 21 
+    //     //如果与服务端断开，则重新链接
+    //     close(sockfd);
+    //     net_init();   
+    //     //exit(1);  
+    //  } 
+    //  else cout<<"have sent information of taskpoint successfully!"<<endl;
 
 }
 
@@ -729,29 +761,31 @@ void send_Stop(){
     map_data["msg"] = "stop";
 
     string jstr = writer.write(map_data);
-
+    string tip ="send information of stop successfully!";
+    send_info_to_server(jstr,tip)；
+    is_stop = false;
     //cout<<"josn:"<<jstr<<endl;
 
-    int len = jstr.length();
-    unsigned char *s_len = (unsigned char*)&len;
+    // int len = jstr.length();
+    // unsigned char *s_len = (unsigned char*)&len;
    
-    const char* ss_c = jstr.c_str();
-    char send_str[len+6] = {0};
-    send_str[0] = NULL;
-    send_str[1] = NULL;
+    // const char* ss_c = jstr.c_str();
+    // char send_str[len+6] = {0};
+    // send_str[0] = NULL;
+    // send_str[1] = NULL;
 
 
-    unsigned char* len_byte = intToBytes(len);
-    for(int i=0;i<4;i++){
-        send_str[i+2] = len_byte[i];
-    }
-    for(int i=6;i<(len+6);i++){
-        send_str[i] = ss_c[i-6];
-    }
-    send_str[len+6] = '\0';
-    send(sockfd,send_str,len+6,0);
+    // unsigned char* len_byte = intToBytes(len);
+    // for(int i=0;i<4;i++){
+    //     send_str[i+2] = len_byte[i];
+    // }
+    // for(int i=6;i<(len+6);i++){
+    //     send_str[i] = ss_c[i-6];
+    // }
+    // send_str[len+6] = '\0';
+    // send(sockfd,send_str,len+6,0);
 
-    is_stop = false;
+    
 
 }
 
@@ -818,34 +852,35 @@ void sendPlanner(const char* s){
 
     }
     string jstr = writer.write(map_data);
+    string tip="plan json have send to server!";
+    send_info_to_server(jstr,tip)；
+    // cout<<"plan josn:"<<jstr<<endl;
 
-    cout<<"plan josn:"<<jstr<<endl;
+    // path_log<<"plan josn:"<<jstr<<endl;
+    // path_log<<endl<<endl<<endl;
 
-    path_log<<"plan josn:"<<jstr<<endl;
-    path_log<<endl<<endl<<endl;
-
-    int len = jstr.length();
-    cout<<"len:"<<len<<endl;
-    unsigned char *s_len = (unsigned char*)&len;
+    // int len = jstr.length();
+    // cout<<"len:"<<len<<endl;
+    // unsigned char *s_len = (unsigned char*)&len;
    
-    const char* ss_c = jstr.c_str();
-    char send_str[len+6] = {0};
-    send_str[0] = NULL;
-    send_str[1] = NULL;
+    // const char* ss_c = jstr.c_str();
+    // char send_str[len+6] = {0};
+    // send_str[0] = NULL;
+    // send_str[1] = NULL;
 
 
-    unsigned char* len_byte = intToBytes(len);
-    for(int i=0;i<4;i++){
-        send_str[i+2] = len_byte[i];
-    }
+    // unsigned char* len_byte = intToBytes(len);
+    // for(int i=0;i<4;i++){
+    //     send_str[i+2] = len_byte[i];
+    // }
    
-    for(int i=6;i<(len+6);i++){
-        send_str[i] = ss_c[i-6];
-    }
-    send_str[len+6] = '\0';
+    // for(int i=6;i<(len+6);i++){
+    //     send_str[i] = ss_c[i-6];
+    // }
+    // send_str[len+6] = '\0';
 
-    send(sockfd,send_str,len+6,0);
-    cout<<"plan json have send to server"<<endl;
+    // send(sockfd,send_str,len+6,0);
+    //cout<<"plan json have send to server"<<endl;
 }
 
 void sendStatus(int sockfd){
@@ -870,31 +905,32 @@ void sendStatus(int sockfd){
     map_data["serial"] = "12345678";
 
     string jstr = writer.write(map_data);
-
+    string tip="send the information of real status of car successfully!";
+    send_info_to_server(jstr,tip)；
     //cout<<jstr<<endl;
 
-    int len = jstr.length();
-    //cout<<jstr<<endl;
-    //cout<<"len:"<<len<<endl;
-    unsigned char *s_len = (unsigned char*)&len;
+    // int len = jstr.length();
+    // //cout<<jstr<<endl;
+    // //cout<<"len:"<<len<<endl;
+    // unsigned char *s_len = (unsigned char*)&len;
    
-    const char* ss_c = jstr.c_str();
-    char send_str[len+6] = {0};
-    send_str[0] = NULL;
-    send_str[1] = NULL;
+    // const char* ss_c = jstr.c_str();
+    // char send_str[len+6] = {0};
+    // send_str[0] = NULL;
+    // send_str[1] = NULL;
 
 
-    unsigned char* len_byte = intToBytes(len);
-    for(int i=0;i<4;i++){
-        send_str[i+2] = len_byte[i];
-    }
+    // unsigned char* len_byte = intToBytes(len);
+    // for(int i=0;i<4;i++){
+    //     send_str[i+2] = len_byte[i];
+    // }
    
-    for(int i=6;i<(len+6);i++){
-        send_str[i] = ss_c[i-6];
-    }
-    send_str[len+6] = '\0';
+    // for(int i=6;i<(len+6);i++){
+    //     send_str[i] = ss_c[i-6];
+    // }
+    // send_str[len+6] = '\0';
 
-    send(sockfd,send_str,len+6,0);
+    // send(sockfd,send_str,len+6,0);
 }
 
 void sendCarStatus(int sockfd){
@@ -938,29 +974,30 @@ void sendCarStatus(int sockfd){
 
     //cout<<jstr<<endl;
 
-    int len = jstr.length();
-    //cout<<"len:"<<len<<endl;
-    //cout<<jstr<<endl;
-    unsigned char *s_len = (unsigned char*)&len;
+    // int len = jstr.length();
+    // //cout<<"len:"<<len<<endl;
+    // //cout<<jstr<<endl;
+    // unsigned char *s_len = (unsigned char*)&len;
    
-    const char* ss_c = jstr.c_str();
-    char send_str[len+6] = {0};
-    send_str[0] = NULL;
-    send_str[1] = NULL;
+    // const char* ss_c = jstr.c_str();
+    // char send_str[len+6] = {0};
+    // send_str[0] = NULL;
+    // send_str[1] = NULL;
 
 
-    unsigned char* len_byte = intToBytes(len);
-    for(int i=0;i<4;i++){
-        send_str[i+2] = len_byte[i];
-    }
+    // unsigned char* len_byte = intToBytes(len);
+    // for(int i=0;i<4;i++){
+    //     send_str[i+2] = len_byte[i];
+    // }
    
-    for(int i=6;i<(len+6);i++){
-        send_str[i] = ss_c[i-6];
-    }
-    send_str[len+6] = '\0';
+    // for(int i=6;i<(len+6);i++){
+    //     send_str[i] = ss_c[i-6];
+    // }
+    // send_str[len+6] = '\0';
 
     if(cSOC > 5.0){
-    	send(sockfd,send_str,len+6,0);
+    	string tip="send the information of physical status of car successfully!";
+        send_info_to_server(jstr,tip)；
     }
 }
 
@@ -982,14 +1019,12 @@ void* recData(void* args){
         long recv_length = GetMsgLength(sockfd);//
 
                 //cout<<recv_length<<endl;
-
                 unsigned char recv_msg[recv_length+1] = {0};
                 int msg = recv(sockfd,recv_msg,recv_length,MSG_WAITALL);
                 char* sss = {0};
                 recv_msg[recv_length+1] = '\0';
                 sss = (char*)recv_msg;
                 record_sss << ros::Time::now() << " " << sss << endl;
-
                 //cout<<sss<<endl;
                 serial.clear();
 
@@ -1034,29 +1069,31 @@ void* recData(void* args){
 
 
                     string jstr = writer.write(map_data);
-                    cout<<jstr<<endl;
-                    int len = jstr.length();
-                    unsigned char *s_len = (unsigned char*)&len;
+                    string tip="send the information of physical status of car successfully!";
+                    send_info_to_server(jstr,tip)；
+                    // cout<<jstr<<endl;
+                    // int len = jstr.length();
+                    // unsigned char *s_len = (unsigned char*)&len;
                     
-                    const char* ss_c = jstr.c_str();
-                    char send_str[len+6] = {0};
-                    send_str[0] = NULL;
-                    send_str[1] = NULL;
+                    // const char* ss_c = jstr.c_str();
+                    // char send_str[len+6] = {0};
+                    // send_str[0] = NULL;
+                    // send_str[1] = NULL;
 
-                    send_str[2] = NULL;
-                    send_str[3] = NULL;
+                    // send_str[2] = NULL;
+                    // send_str[3] = NULL;
 
-                    send_str[4] = NULL;
-                    send_str[5] = (char)len;
-                    //cout<<send_str[5]<<endl;
-                    for(int i=6;i<(len+6);i++){
-                        send_str[i] = ss_c[i-6];
-                        //cout<<send_str;
-                    }
-                    cout<<endl;
-                    send_str[len+6] = '\0';
+                    // send_str[4] = NULL;
+                    // send_str[5] = (char)len;
+                    // //cout<<send_str[5]<<endl;
+                    // for(int i=6;i<(len+6);i++){
+                    //     send_str[i] = ss_c[i-6];
+                    //     //cout<<send_str;
+                    // }
+                    // cout<<endl;
+                    // send_str[len+6] = '\0';
                     
-                    send(sockfd,send_str,len+6,0);
+                    // send(sockfd,send_str,len+6,0);
 
                 }else if(action_.compare("patrolStartPathPlan") == 0){//开始路径规划
                     
@@ -1327,10 +1364,12 @@ int main(int argc, char **argv){
                 s[i+6] = ss[i];
             }
             cout<<s<<endl;
-            send(sockfd,s,ss.length()+6,0);
+            //send(sockfd,s,ss.length()+6,0);
+            string tip="send successfully";
+            send_info_to_server(jstr,tip)；
             ss = "";
             is_first = 1; 
-            cout<<"send successfully"<<endl;
+            //cout<<"send successfully"<<endl;
         }
         status = ros::ok();
         rate.sleep();
