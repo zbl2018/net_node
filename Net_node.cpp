@@ -230,7 +230,6 @@ void net_init(){
     printf("welcome\n"); 
 }
 
-//获取消息长度
 int GetMsgLength(int sockfd){
     int recv_length = 0;
     unsigned char recvline[6] = {0};
@@ -270,7 +269,6 @@ int GetMsgLength(int sockfd){
      }
 }
 
-//转换为字节流，解决不同环境下编码方式的不同，产生乱码
 unsigned char* intToBytes(int value) { //big end to little end
     unsigned char* src = new unsigned char[4];
     src[0] = (unsigned char) ((value >> 24) & 0xFF);
@@ -280,7 +278,7 @@ unsigned char* intToBytes(int value) { //big end to little end
     return src;
 }
 //decoded from zbl on jan 21
-//deal with the information that prepares to send socket 
+//deal with the information that prepare to send socket 
 int deal_preSendInfo(string preInfo,char finInfo[], int &Infolen){
     
     int len = preInfo.length();
@@ -307,11 +305,10 @@ int deal_preSendInfo(string preInfo,char finInfo[], int &Infolen){
     Infolen=len+6;
     return 1;
 }
-//解码move模式的json字符串
 void decodeMove(char* s){
     Json::Reader reader;
     Json::Value value;
-    //string js;
+    string js;
     if(reader.parse(s,value)){
         if(!value["action"].isNull()){
             //cout<<value["action"].asString()<<endl;
@@ -327,7 +324,7 @@ void decodeMove(char* s){
         }
     }
 } 
-//解码任务点消息的json字符串
+
 void decodeTask(char* s){
     Json::Reader reader;
     Json::Value value;
@@ -970,7 +967,6 @@ void sendCarStatus(int sockfd){
 void* getData(void* args){
     while(true){
         sendStatus(sockfd);
-        //进程挂起进入就绪队列，以微妙为单位
         usleep(200000);
     }
 }
